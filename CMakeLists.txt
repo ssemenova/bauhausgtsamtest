@@ -5,10 +5,14 @@ project(
 	LANGUAGES C CXX
 	)
 
+find_package(OpenCV 4.4)
+   if(NOT OpenCV_FOUND)
+      message(FATAL_ERROR "OpenCV > 4.4 not found.")
+   endif()
 
 find_package(GTSAM REQUIRED) # Uses installed package
 include_directories(${GTSAM_INCLUDE_DIR})
 link_directories(${GTSAM_LIBRARY_DIRS})
 
-add_executable( Test main.cpp )
-target_link_libraries( Test  gtsam )
+add_executable( Test src/main.cpp )
+target_link_libraries( Test  gtsam ${OpenCV_LIBS})

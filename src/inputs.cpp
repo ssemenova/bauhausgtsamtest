@@ -35,16 +35,16 @@ const double ACCEL_RANDOM_WALK = 3.0000e-2;
 const double GYRO_RANDOM_WALK = 1.9393e-05;
 
 // * INPUTS *//
-const string image1 = "/home/sofiya/euroc/MH_02_easy/mav0/cam0/data/1403636861151666432.png";
-const string image2 = "/home/sofiya/euroc/MH_02_easy/mav0/cam0/data/1403636861251666432.png";
+const string IMAGE1_PATH = "/home/sofiya/euroc/MH_02_easy/mav0/cam0/data/1403636861151666432.png";
+const string IMAGE2_PATH = "/home/sofiya/euroc/MH_02_easy/mav0/cam0/data/1403636861251666432.png";
 
-const gtsam::Pose3 initial_pose = gtsam::Pose3(gtsam::Quaternion(0.5308, -0.1365, -0.8329, -0.0761), gtsam::Point3(4.6331, -1.8072, 0.8306));
-const gtsam::Vector3 initial_velocity = gtsam::Vector3(-0.060768, 0.054005, 0.617824);
-const gtsam::imuBias::ConstantBias initial_bias = gtsam::imuBias::ConstantBias(
+const gtsam::Pose3 INITIAL_POSE = gtsam::Pose3(gtsam::Quaternion(0.5308, -0.1365, -0.8329, -0.0761), gtsam::Point3(4.6331, -1.8072, 0.8306));
+const gtsam::Vector3 INITIAL_VELOCITY = gtsam::Vector3(-0.060768, 0.054005, 0.617824);
+const gtsam::imuBias::ConstantBias INITIAL_BIAS = gtsam::imuBias::ConstantBias(
     gtsam::Vector3(-0.024348, 0.144441, 0.06754),
     gtsam::Vector3(-0.002535, 0.021162, 0.07717));
 
-const std::vector<gtsam::ImuMeasurement> imu_measurements = {
+const std::vector<gtsam::ImuMeasurement> IMU_MEASUREMENTS = {
     gtsam::ImuMeasurement(gtsam::Vector3(9.536967277526855, -0.1062387079000473, -4.012554168701172), gtsam::Vector3(-0.04188790172338486, 0.4663519859313965, 0.012566370889544487), 0.010000228881835938),
     gtsam::ImuMeasurement(gtsam::Vector3(9.569655895233154, -0.2206496223807335, -4.073845863342285), gtsam::Vector3(-0.030368728563189507, 0.47856926918029785, 0.027576201595366), 0.004999876022338867),
     gtsam::ImuMeasurement(gtsam::Vector3(9.48793363571167, -0.3064578175544739, -4.1228790283203125), gtsam::Vector3(-0.018151423893868923, 0.4925318956375122, 0.03735004551708698), 0.004999876022338867),
@@ -66,7 +66,7 @@ const std::vector<gtsam::ImuMeasurement> imu_measurements = {
     gtsam::ImuMeasurement(gtsam::Vector3(8.960826396942139, -0.08989429101347923, -3.824593424797058), gtsam::Vector3(-0.00034906581277027726, 0.5204571783542633, 0.06457718275487423), 0.005000114440917969),
 };
 
-std::vector<std::tuple<gtsam::Point2, int>> features_f1 = {
+std::vector<std::tuple<gtsam::Point2, int>> FEATURES_F1 = {
 
     {gtsam::Point2(576, 7), 0},
     {gtsam::Point2(323, 6), 1},
@@ -269,7 +269,7 @@ std::vector<std::tuple<gtsam::Point2, int>> features_f1 = {
     {gtsam::Point2(100, 192), 198},
 };
 
-std::vector<std::tuple<gtsam::Point2, int>> features_f2 = {
+std::vector<std::tuple<gtsam::Point2, int>> FEATURES_F2 = {
     {gtsam::Point2(573.4007568359375, 21.680009841918945), 0},
     {gtsam::Point2(322.5981140136719, 26.052146911621094), 1},
     {gtsam::Point2(503.8122253417969, 131.71319580078125), 2},

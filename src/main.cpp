@@ -27,13 +27,13 @@ void initialize(NonlinearFactorGraph &graph, PreintegratedCombinedMeasurements *
     // Create prior factor and add it to the graph
 
     // Sofiya: quaternion is wxyz here but xyzw in bauhaus
-    gtsam::State prior_state = gtsam::State(initial_pose, initial_velocity, initial_bias);
+    gtsam::State prior_state = gtsam::State(INITIAL_POSE, INITIAL_VELOCITY, INITIAL_BIAS);
 
     std::cout << "INITIALIZATION!" << std::endl;
-    std::cout << "\t Translation: " << initial_pose.translation().transpose() << std::endl;
-    std::cout << "\t Rotation: " << initial_pose.rotation().toQuaternion() << std::endl;
-    std::cout << "\t Velocity: " << initial_velocity.transpose() << std::endl;
-    std::cout << "\t Bias: " << initial_bias << std::endl;
+    std::cout << "\t Translation: " << INITIAL_POSE.translation().transpose() << std::endl;
+    std::cout << "\t Rotation: " << INITIAL_POSE.rotation().toQuaternion() << std::endl;
+    std::cout << "\t Velocity: " << INITIAL_VELOCITY.transpose() << std::endl;
+    std::cout << "\t Bias: " << INITIAL_BIAS << std::endl;
 
     // Set initial pose uncertainty: constrain mainly position and global yaw.
     // roll and pitch is observable, therefore low variance.
@@ -47,7 +47,7 @@ void initialize(NonlinearFactorGraph &graph, PreintegratedCombinedMeasurements *
 
     // Rotate initial uncertainty into local frame, where the uncertainty is
     // specified.
-    auto B_Rot_W = initial_pose.rotation().matrix();
+    auto B_Rot_W = INITIAL_POSE.rotation().matrix();
     pose_prior_covariance.topLeftCorner(3, 3) =
         B_Rot_W * pose_prior_covariance.topLeftCorner(3, 3) * B_Rot_W.transpose();
 
@@ -127,9 +127,9 @@ gtsam::State predict_state(PreintegratedCombinedMeasurements &preint, Values &va
 
 void preintegrate(PreintegratedCombinedMeasurements *&preint)
 {
-    for (int i = 0; i < imu_measurements.size(); i++)
+    for (int i = 0; i < IMU_MEASUREMENTS.size(); i++)
     {
-        preint->integrateMeasurement(imu_measurements[i].measuredAcc, imu_measurements[i].measuredOmega, imu_measurements[i].dt);
+        preint->integrateMeasurement(IMU_MEASUREMENTS[i].measuredAcc, IMU_MEASUREMENTS[i].measuredOmega, IMU_MEASUREMENTS[i].dt);
     }
 }
 
@@ -284,10 +284,10 @@ int main(int argc, char** argv)
 
     // Vision
     // Run with the optical flow values from Bauhaus
-    // process_smart_features(graph, features_f1, features_f2);
+    // process_smart_features(graph, FEATURES_F1, FEATURES_F2);
     // Or run with optical flow performed here
-    cv::Mat f1 = read_image_and_resize(image1);
-    cv::Mat f2 = read_image_and_resize(image2);
+    cv::Mat f1 = read_image_and_resize(IMAGE1_PATH);
+    cv::Mat f2 = read_image_and_resize(IMAGE2_PATH);
     std::tuple<TrackedFeatures, TrackedFeatures> feature_tracks = optical_flow(f1, f2);
     TrackedFeatures features_f1 = std::get<0>(feature_tracks);
     TrackedFeatures features_f2 = std::get<1>(feature_tracks);

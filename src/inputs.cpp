@@ -35,8 +35,8 @@ const double ACCEL_RANDOM_WALK = 3.0000e-2;
 const double GYRO_RANDOM_WALK = 1.9393e-05;
 
 // * INPUTS *//
-const string IMAGE1_PATH = "/home/sofiya/euroc/MH_02_easy/mav0/cam0/data/1403636861151666432.png";
-const string IMAGE2_PATH = "/home/sofiya/euroc/MH_02_easy/mav0/cam0/data/1403636861251666432.png";
+const string IMAGE1_PATH = "1403636861151666432.png";
+const string IMAGE2_PATH = "1403636861251666432.png";
 
 const gtsam::Pose3 INITIAL_POSE = gtsam::Pose3(gtsam::Quaternion(0.5308, -0.1365, -0.8329, -0.0761), gtsam::Point3(4.6331, -1.8072, 0.8306));
 const gtsam::Vector3 INITIAL_VELOCITY = gtsam::Vector3(-0.060768, 0.054005, 0.617824);

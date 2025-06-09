@@ -242,7 +242,7 @@ std::tuple<TrackedFeatures, TrackedFeatures> optical_flow(cv::Mat &f1, cv::Mat &
     {
         if (status[i] == 1) {
             features_f2.push_back(std::make_tuple(gtsam::Point2(p2[i].x, p2[i].y), i));
-            std::cout << "gtsam::Point2(" << p2[i].x << ", " << p2[i].y << "), " << i << std::endl;
+            // std::cout << "gtsam::Point2(" << p2[i].x << ", " << p2[i].y << "), " << i << std::endl;
             total_tracked += 1;
         }
     }

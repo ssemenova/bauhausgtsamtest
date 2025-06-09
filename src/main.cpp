@@ -21,6 +21,7 @@ using namespace std;
 using namespace gtsam;
 
 typedef std::vector<std::tuple<gtsam::Point2, int>> TrackedFeatures;
+typedef SmartProjectionPoseFactor<gtsam::Cal3_S2> SmartFactor;
 
 void initialize(NonlinearFactorGraph &graph, PreintegratedCombinedMeasurements *&preint, Values &values)
 {
@@ -151,26 +152,26 @@ void process_smart_features(
     TrackedFeatures & features_f1,
     TrackedFeatures & features_f2)
 {
-    unordered_map<int, gtsam::SmartProjectionPoseFactor<gtsam::Cal3_S2>> measurement_smart_lookup_left;
+    unordered_map<int, SmartFactor::shared_ptr> measurement_smart_lookup_left;
 
     // Sofiya: First frame's features. All features should be new
     for (int i = 0; i < features_f1.size(); i++)
     {
         // Create a smart factor for the new feature
-        noiseModel::Isotropic::shared_ptr measurement_noise = noiseModel::Isotropic::Sigma(2, SIGMA_CAMERA, true); // sigma_camera
+        noiseModel::Isotropic::shared_ptr measurement_noise = noiseModel::Isotropic::Sigma(2, 1.0, true); // sigma_camera
         gtsam::Cal3_S2 K = gtsam::Cal3_S2(FX, FY, S, CX, CY);
 
         // Note (frames): Transformation from camera frame to imu frame, i.e., pose of imu frame in camera frame
-        SmartProjectionPoseFactor<gtsam::Cal3_S2> factor = SmartProjectionPoseFactor<gtsam::Cal3_S2>(
+        SmartFactor::shared_ptr factor(new SmartFactor(
             measurement_noise,
             boost::make_shared<gtsam::Cal3_S2>(K), // calibration
-            boost::optional<gtsam::Pose3>(tbc)); // body_P_sensor
+            boost::optional<gtsam::Pose3>(tbc))); // body_P_sensor);
 
         int feature_id = std::get<1>(features_f1[i]);
         gtsam::Point2 point = std::get<0>(features_f1[i]);
 
         // Insert measurements to a smart factor
-        factor.add(point, gtsam::Symbol('x', 0));
+        factor->add(point, gtsam::Symbol('x', 0));
 
         // Add smart factor to FORSTER2 model
         graph.add(factor);
@@ -186,12 +187,17 @@ void process_smart_features(
 
         // Insert measurements to a smart factor
         auto factor = measurement_smart_lookup_left[feature_id];
-        factor.add(point, gtsam::Symbol('x', 1)); // Add measurement
+        factor->add(point, gtsam::Symbol('x', 1)); // Add measurement
     }
 }
 
 void optimize(ISAM2 & isam2, NonlinearFactorGraph & graph, Values & values)
 {
+    std::cout << "Initial values:";
+    values.print();
+    std::cout << "Graph: " << std::endl;
+    graph.print();
+
     // Perform smoothing update
     ISAM2Result result = isam2.update(graph, values);
     values = isam2.calculateEstimate();
@@ -201,7 +207,7 @@ std::tuple<TrackedFeatures, TrackedFeatures> optical_flow(cv::Mat &f1, cv::Mat &
 {
     // Good features to track
     vector<cv::Point2f> p1;
-    cv::goodFeaturesToTrack(f1, p1, 200, 0.01, 10, cv::Mat(), 3, false, 0.04);
+    cv::goodFeaturesToTrack(f1, p1, 200, 0.01, 7, cv::Mat(), 7, false, 0.04);
     TrackedFeatures features_f1;
     for (int i = 0; i < p1.size(); i++)
     {

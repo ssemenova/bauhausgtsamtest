@@ -195,28 +195,9 @@ void optimize(ISAM2 & isam2, NonlinearFactorGraph & graph, Values & values)
     // Perform smoothing update
     ISAM2Result result = isam2.update(graph, values);
     values = isam2.calculateEstimate();
-    // std::cout << "SOFIYA! ESTIMATE: ";
-    // values.print();
-
-    // Sofiya: Not doing the following because we are only running the optimization once
-
-    // // Remove the used up nodes
-    // self.values_new.clear();
-
-    // // Use the optimized bias to reset integration
-    // if self
-    //     .values_initial.exists(&Symbol::new (b 'b', self.ct_state + 1))
-    //     {
-    //         self.preint_gtsam.reset_integration_and_set_bias(
-    //             &self.values_initial.get_constantbias(&Symbol::new (b 'b', self.ct_state + 1)).unwrap().into());
-    //     }
-    // else
-    // {
-    //     warn !("Bias wasn't optimized?");
-    // }
 }
 
-std::tuple<TrackedFeatures, TrackedFeatures> optical_flow(cv::Mat &f1, cv::Mat &f2)
+std::tuple<TrackedFeatures, TrackedFeatures> optical_flow(cv::Mat &f1, cv::Mat &f2, bool should_visualize=false)
 {
     // Good features to track
     vector<cv::Point2f> p1;
@@ -233,10 +214,9 @@ std::tuple<TrackedFeatures, TrackedFeatures> optical_flow(cv::Mat &f1, cv::Mat &
     vector<uchar> status;
     vector<float> err;
     cv::TermCriteria criteria = cv::TermCriteria(3, 30, 0.01);
-    cv::calcOpticalFlowPyrLK(f1, f2, p1, p2, status, err, cv::Size(24, 24), 3, criteria);
+    cv::calcOpticalFlowPyrLK(f1, f2, p1, p2, status, err, cv::Size(21, 21), 4, criteria);
 
     TrackedFeatures features_f2;
-    int index_correction = 0; // We mutate self.tracked_features vectors while status and points2 lengths remain the same
     int total_tracked = 0;
     for (int i = 0; i < status.size(); i++)
     {
@@ -248,12 +228,44 @@ std::tuple<TrackedFeatures, TrackedFeatures> optical_flow(cv::Mat &f1, cv::Mat &
     }
 
     std::cout << "Optical flow total tracked features: " << total_tracked << std::endl;
+
+    if (should_visualize)
+    {
+        vector<cv::Scalar> colors;
+        cv::RNG rng;
+        for (int i = 0; i < 100; i++)
+        {
+            int r = rng.uniform(0, 256);
+            int g = rng.uniform(0, 256);
+            int b = rng.uniform(0, 256);
+            colors.emplace_back(r, g, b);
+        }
+
+        cv::Mat f2_rgb;
+        cvtColor(f2, f2_rgb, cv::COLOR_BGR2RGB);
+
+        cv::Mat mask = cv::Mat::zeros(f2_rgb.size(), f2_rgb.type());
+
+        for (uint i = 0; i < p1.size(); i++)
+        {
+            if (status[i] == 1)
+            {
+                line(mask, p2[i], p1[i], colors[i], 2);
+                circle(f2_rgb, p2[i], 2, colors[i], -1);
+            }
+        }
+
+        cv::Mat img;
+        cv::add(f2_rgb, mask, img);
+        cv::imwrite("optical_flow.png", img);
+    }
+
     return std::make_tuple(features_f1, features_f2);
 }
 
 cv::Mat read_image_and_resize(const std::string &image_path)
 {
-    cv::Mat im = imread(image_path, cv::IMREAD_GRAYSCALE);
+    cv::Mat im = imread(image_path, cv::IMREAD_UNCHANGED);
     cv::Mat im_resize;
     cv::resize(im, im_resize, cv::Size(600, 350));
     return im_resize;
@@ -288,7 +300,7 @@ int main(int argc, char** argv)
     // Or run with optical flow performed here
     cv::Mat f1 = read_image_and_resize(IMAGE1_PATH);
     cv::Mat f2 = read_image_and_resize(IMAGE2_PATH);
-    std::tuple<TrackedFeatures, TrackedFeatures> feature_tracks = optical_flow(f1, f2);
+    std::tuple<TrackedFeatures, TrackedFeatures> feature_tracks = optical_flow(f1, f2, true);
     TrackedFeatures features_f1 = std::get<0>(feature_tracks);
     TrackedFeatures features_f2 = std::get<1>(feature_tracks);
     process_smart_features(graph, features_f1, features_f1);

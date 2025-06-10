@@ -3,6 +3,14 @@
 #include <gtsam/inference/Symbol.h>
 #include <gtsam/nonlinear/Values.h>
 #include <gtsam/nonlinear/ISAM2.h>
+#include <gtsam/slam/ProjectionFactor.h>
+#include <gtsam/slam/SmartProjectionPoseFactor.h>
+
+#include <opencv2/core.hpp>
+#include <opencv2/highgui.hpp>
+#include <opencv2/imgproc.hpp>
+#include <opencv2/videoio.hpp>
+#include <opencv2/video.hpp>
 
 namespace gtsam
 {
@@ -35,4 +43,29 @@ namespace gtsam
             this->dt = dt;
         }
     };
+}
+
+typedef std::vector<std::tuple<gtsam::Point2, int>> TrackedFeatures;
+typedef gtsam::SmartProjectionPoseFactor<gtsam::Cal3_S2> SmartFactor;
+
+std::vector<cv::Point2f> get_tracked_features_as_vector_of_point2f(
+    const TrackedFeatures &tracked_features
+)
+{
+    std::vector<cv::Point2f> features;
+    for (const auto &feature : tracked_features)
+    {
+        features.push_back(cv::Point2f(std::get<0>(feature).x(), std::get<0>(feature).y()));
+    }
+    return features;
+}
+
+void print_features(const TrackedFeatures &features)
+{
+    std::cout << "Features: ";
+    for (const auto &feature : features)
+    {
+        std::cout << "(" << std::get<0>(feature).x() << ", " << std::get<0>(feature).y() << ", " << std::get<1>(feature) << "), ";
+    }
+    std::cout << std::endl;
 }

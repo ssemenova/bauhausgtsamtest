@@ -5,8 +5,6 @@
 #include <gtsam/nonlinear/ISAM2.h>
 #include <gtsam/slam/PriorFactor.h>
 #include <gtsam/navigation/CombinedImuFactor.h>
-#include <gtsam/slam/ProjectionFactor.h>
-#include <gtsam/slam/SmartProjectionPoseFactor.h>
 
 // Opencv
 #include <opencv2/core.hpp>
@@ -20,17 +18,14 @@
 using namespace std;
 using namespace gtsam;
 
-typedef std::vector<std::tuple<gtsam::Point2, int>> TrackedFeatures;
-typedef SmartProjectionPoseFactor<gtsam::Cal3_S2> SmartFactor;
-
-void initialize(NonlinearFactorGraph &graph, PreintegratedCombinedMeasurements *&preint, Values &values)
+void initialize(NonlinearFactorGraph &graph, PreintegratedCombinedMeasurements *&preint, Values &current_values, Values &all_values)
 {
     // Create prior factor and add it to the graph
 
     // Sofiya: quaternion is wxyz here but xyzw in bauhaus
     gtsam::State prior_state = gtsam::State(INITIAL_POSE, INITIAL_VELOCITY, INITIAL_BIAS);
 
-    std::cout << "INITIALIZATION!" << std::endl;
+    std::cout << "Initialization:" << std::endl;
     std::cout << "\t Translation: " << INITIAL_POSE.translation().transpose() << std::endl;
     std::cout << "\t Rotation: " << INITIAL_POSE.rotation().toQuaternion() << std::endl;
     std::cout << "\t Velocity: " << INITIAL_VELOCITY.transpose() << std::endl;
@@ -78,9 +73,12 @@ void initialize(NonlinearFactorGraph &graph, PreintegratedCombinedMeasurements *
         imu_bias_prior_noise));
 
     // Add initial state to the graph
-    values.insert(gtsam::Symbol('x', 0), prior_state.pose_);
-    values.insert(gtsam::Symbol('v', 0), prior_state.velocity_);
-    values.insert(gtsam::Symbol('b', 0), prior_state.bias_);
+    current_values.insert(gtsam::Symbol('x', 0), prior_state.pose_);
+    current_values.insert(gtsam::Symbol('v', 0), prior_state.velocity_);
+    current_values.insert(gtsam::Symbol('b', 0), prior_state.bias_);
+    all_values.insert(gtsam::Symbol('x', 0), prior_state.pose_);
+    all_values.insert(gtsam::Symbol('v', 0), prior_state.velocity_);
+    all_values.insert(gtsam::Symbol('b', 0), prior_state.bias_);
 
     // Create GTSAM preintegration parameters for use with Foster's version
     boost::shared_ptr<gtsam::PreintegratedCombinedMeasurements::Params>
@@ -98,13 +96,13 @@ void initialize(NonlinearFactorGraph &graph, PreintegratedCombinedMeasurements *
     preint = new gtsam::PreintegratedCombinedMeasurements(params, prior_state.bias_);
 }
 
-gtsam::State predict_state(PreintegratedCombinedMeasurements &preint, Values &values, int ct_state)
+gtsam::State predict_state(PreintegratedCombinedMeasurements &preint, Values &values, const int state_id)
 {
     // Get the current state (t=k)
     gtsam::State state_k = gtsam::State(
-        values.at(gtsam::Symbol('x', ct_state)).cast<Pose3>(),
-        values.at(gtsam::Symbol('v', ct_state)).cast<Vector3>(),
-        values.at(gtsam::Symbol('b', ct_state)).cast<imuBias::ConstantBias>());
+        values.at(gtsam::Symbol('x', state_id)).cast<Pose3>(),
+        values.at(gtsam::Symbol('v', state_id)).cast<Vector3>(),
+        values.at(gtsam::Symbol('b', state_id)).cast<imuBias::ConstantBias>());
 
     // std::cout << "Current state used for imu-based prediction: " << std::endl;
     // std::cout << "Pose: " << state_k.pose_ << std::endl;
@@ -126,112 +124,131 @@ gtsam::State predict_state(PreintegratedCombinedMeasurements &preint, Values &va
     return predicted;
 }
 
-void preintegrate(PreintegratedCombinedMeasurements *&preint)
+void preintegrate(PreintegratedCombinedMeasurements *&preint, vector<gtsam::ImuMeasurement> &imu_msmts)
 {
-    for (int i = 0; i < IMU_MEASUREMENTS.size(); i++)
+    for (int i = 0; i < imu_msmts.size(); i++)
     {
-        preint->integrateMeasurement(IMU_MEASUREMENTS[i].measuredAcc, IMU_MEASUREMENTS[i].measuredOmega, IMU_MEASUREMENTS[i].dt);
+        preint->integrateMeasurement(imu_msmts[i].measuredAcc, imu_msmts[i].measuredOmega, imu_msmts[i].dt);
     }
 }
 
-void create_imu_factor(PreintegratedCombinedMeasurements & preint, NonlinearFactorGraph & graph)
+void create_imu_factor(PreintegratedCombinedMeasurements & preint, NonlinearFactorGraph & graph, int state_id)
 {
     CombinedImuFactor imu_factor = CombinedImuFactor(
-        gtsam::Symbol('x', 0), // pose at time t
-        gtsam::Symbol('v', 0), // velocity at time t
-        gtsam::Symbol('x', 1), // pose at time t+1
-        gtsam::Symbol('v', 1), // velocity at time t+1
-        gtsam::Symbol('b', 0), // bias at time t
-        gtsam::Symbol('b', 1), // bias at time t+1
+        gtsam::Symbol('x', state_id),     // pose at time t
+        gtsam::Symbol('v', state_id),     // velocity at time t
+        gtsam::Symbol('x', state_id + 1), // pose at time t+1
+        gtsam::Symbol('v', state_id + 1), // velocity at time t+1
+        gtsam::Symbol('b', state_id),     // bias at time t
+        gtsam::Symbol('b', state_id + 1),            // bias at time t+1
         preint);
     graph.add(imu_factor);
 }
 
 void process_smart_features(
-    NonlinearFactorGraph & graph,
-    TrackedFeatures & features_f1,
-    TrackedFeatures & features_f2)
+    NonlinearFactorGraph &graph,
+    const TrackedFeatures &features,
+    unordered_map<int, SmartFactor::shared_ptr> &smart_factors_lookup,
+    const int state_id)
 {
-    unordered_map<int, SmartFactor::shared_ptr> measurement_smart_lookup_left;
-
-    // Sofiya: First frame's features. All features should be new
-    for (int i = 0; i < features_f1.size(); i++)
+    for (int i = 0; i < features.size(); i++)
     {
-        // Create a smart factor for the new feature
-        noiseModel::Isotropic::shared_ptr measurement_noise = noiseModel::Isotropic::Sigma(2, 1.0, true); // sigma_camera
-        gtsam::Cal3_S2 K = gtsam::Cal3_S2(FX, FY, S, CX, CY);
+        gtsam::Point2 point = std::get<0>(features[i]);
+        int feature_id = std::get<1>(features[i]);
+        std::cout << "Processing feature id: " << feature_id << " at point: " << point.transpose() << std::endl;
 
-        // Note (frames): Transformation from camera frame to imu frame, i.e., pose of imu frame in camera frame
-        SmartFactor::shared_ptr factor(new SmartFactor(
-            measurement_noise,
-            boost::make_shared<gtsam::Cal3_S2>(K), // calibration
-            boost::optional<gtsam::Pose3>(tbc))); // body_P_sensor);
+        if (smart_factors_lookup.find(feature_id) != smart_factors_lookup.end())
+        {
+            // Insert measurements to a smart factor
+            auto factor = smart_factors_lookup[feature_id];
+            factor->add(point, gtsam::Symbol('x', state_id)); // Add measurement
+            // std::cout << "Added measurement to existing smart factor for feature id: " << feature_id << std::endl;
+        } 
+        else
+        {
+            // If we know it is not in the graph
+            // Create a smart factor for the new feature
+            noiseModel::Isotropic::shared_ptr measurement_noise = noiseModel::Isotropic::Sigma(2, 1.0, true); // sigma_camera
+            gtsam::Cal3_S2 K = gtsam::Cal3_S2(FX, FY, S, CX, CY);
 
-        int feature_id = std::get<1>(features_f1[i]);
-        gtsam::Point2 point = std::get<0>(features_f1[i]);
+            // Note (frames): Transformation from camera frame to imu frame, i.e., pose of imu frame in camera frame
+            SmartFactor::shared_ptr factor(new SmartFactor(
+                measurement_noise,
+                boost::make_shared<gtsam::Cal3_S2>(K), // calibration
+                boost::optional<gtsam::Pose3>(tbc))); // body_P_sensor);
 
-        // Insert measurements to a smart factor
-        factor->add(point, gtsam::Symbol('x', 0));
+            // Insert measurements to a smart factor
+            factor->add(point, gtsam::Symbol('x', state_id));
 
-        // Add smart factor to FORSTER2 model
-        graph.add(factor);
+            // Add smart factor to FORSTER2 model
+            graph.add(factor);
 
-        measurement_smart_lookup_left.insert({feature_id, factor}); // Store the factor for later use
-    }
+            smart_factors_lookup.insert({feature_id, factor}); // Store the factor for later use
 
-    // Sofiya: Matches to second frame's features. All features should match to the previous frame's
-    for (int i = 0; i < features_f2.size(); i++)
-    {
-        int feature_id = std::get<1>(features_f2[i]);
-        gtsam::Point2 point = std::get<0>(features_f2[i]);
-
-        // Insert measurements to a smart factor
-        auto factor = measurement_smart_lookup_left[feature_id];
-        factor->add(point, gtsam::Symbol('x', 1)); // Add measurement
+            std::cout << "Added new smart factor for feature id: " << feature_id << std::endl;
+        }
     }
 }
 
-void optimize(ISAM2 & isam2, NonlinearFactorGraph & graph, Values & values)
+void extract_features(const cv::Mat frame, TrackedFeatures &features)
 {
-    std::cout << "Initial values:";
-    values.print();
-    std::cout << "Graph: " << std::endl;
-    graph.print();
-
-    // Perform smoothing update
-    ISAM2Result result = isam2.update(graph, values);
-    values = isam2.calculateEstimate();
-}
-
-std::tuple<TrackedFeatures, TrackedFeatures> optical_flow(cv::Mat &f1, cv::Mat &f2, bool should_visualize=false)
-{
-    // Good features to track
-    vector<cv::Point2f> p1;
-    cv::goodFeaturesToTrack(f1, p1, 200, 0.01, 7, cv::Mat(), 7, false, 0.04);
-    TrackedFeatures features_f1;
-    for (int i = 0; i < p1.size(); i++)
+    int num_features_to_find = 200 - features.size();
+    if (num_features_to_find <= 0)
     {
-        features_f1.push_back(std::make_tuple(gtsam::Point2(p1[i].x, p1[i].y), i));
-        // std::cout << "gtsam::Point2(" << p1[i].x << ", " << p1[i].y << "), " << i << std::endl;
+        std::cout << "Have enough features, not extracting more." << std::endl;
+        return;
     }
 
-    // Optical flow
+    cv::Mat mask = cv::Mat(frame.rows, frame.cols, CV_8U, cv::Scalar(255));
+    for (int i = 0; i < features.size(); i++)
+    {
+        cv::Point p1 = cv::Point(std::get<0>(features[i]).x(), std::get<0>(features[i]).y());
+        cv::circle(mask, p1, 20, cv::Scalar(0.0), -1, 8, 0);
+    }
+
+    vector<cv::Point2f> points;
+    cv::goodFeaturesToTrack(frame, points, num_features_to_find, 0.01, 7, mask, 7, false, 0.04);
+
+    int last_tracked_features_id;
+    if (!features.empty())
+    {
+        last_tracked_features_id = std::get<1>(features.back()) + 1;
+    } else {
+        last_tracked_features_id = 0;
+    }
+
+    std::cout << "Extracted features: " << points.size() << std::endl;
+    for (int i = 0; i < points.size(); i++)
+    {
+        features.push_back(std::make_tuple(gtsam::Point2(points[i].x, points[i].y), last_tracked_features_id + i));
+        std::cout << "(" << points[i].x << ", " << points[i].y << ", " << last_tracked_features_id + i << "), ";
+    }
+    std::cout << std::endl;
+}
+
+TrackedFeatures optical_flow(const cv::Mat &frame1, const cv::Mat &frame2, const TrackedFeatures features1, bool should_visualize=false)
+{
+    vector<cv::Point2f> p1 = get_tracked_features_as_vector_of_point2f(features1);
+
     vector<cv::Point2f> p2;
     vector<uchar> status;
     vector<float> err;
     cv::TermCriteria criteria = cv::TermCriteria(3, 30, 0.01);
-    cv::calcOpticalFlowPyrLK(f1, f2, p1, p2, status, err, cv::Size(21, 21), 4, criteria);
+    cv::calcOpticalFlowPyrLK(frame1, frame2, p1, p2, status, err, cv::Size(21, 21), 4, criteria);
 
-    TrackedFeatures features_f2;
+    TrackedFeatures features2;
     int total_tracked = 0;
+    std::cout << "Tracked features: " << std::endl;
     for (int i = 0; i < status.size(); i++)
     {
         if (status[i] == 1) {
-            features_f2.push_back(std::make_tuple(gtsam::Point2(p2[i].x, p2[i].y), i));
+            features2.push_back(std::make_tuple(gtsam::Point2(p2[i].x, p2[i].y), i));
             // std::cout << "gtsam::Point2(" << p2[i].x << ", " << p2[i].y << "), " << i << std::endl;
             total_tracked += 1;
+            std::cout << "(" << p2[i].x << ", " << p2[i].y << ", " << i << "), ";
         }
     }
+    std::cout << std::endl;
 
     std::cout << "Optical flow total tracked features: " << total_tracked << std::endl;
 
@@ -247,26 +264,26 @@ std::tuple<TrackedFeatures, TrackedFeatures> optical_flow(cv::Mat &f1, cv::Mat &
             colors.emplace_back(r, g, b);
         }
 
-        cv::Mat f2_rgb;
-        cvtColor(f2, f2_rgb, cv::COLOR_BGR2RGB);
+        cv::Mat frame2_rgb;
+        cvtColor(frame2, frame2_rgb, cv::COLOR_BGR2RGB);
 
-        cv::Mat mask = cv::Mat::zeros(f2_rgb.size(), f2_rgb.type());
+        cv::Mat mask = cv::Mat::zeros(frame2_rgb.size(), frame2_rgb.type());
 
         for (uint i = 0; i < p1.size(); i++)
         {
             if (status[i] == 1)
             {
                 line(mask, p2[i], p1[i], colors[i], 2);
-                circle(f2_rgb, p2[i], 2, colors[i], -1);
+                circle(frame2_rgb, p2[i], 2, colors[i], -1);
             }
         }
 
         cv::Mat img;
-        cv::add(f2_rgb, mask, img);
+        cv::add(frame2_rgb, mask, img);
         cv::imwrite("optical_flow.png", img);
     }
 
-    return std::make_tuple(features_f1, features_f2);
+    return features2;
 }
 
 cv::Mat read_image_and_resize(const std::string &image_path)
@@ -279,51 +296,101 @@ cv::Mat read_image_and_resize(const std::string &image_path)
 
 int main(int argc, char** argv)
 {
-    // Initialize factor graph
     NonlinearFactorGraph graph;
     PreintegratedCombinedMeasurements *preint_gtsam;
-    Values values;
-    initialize(graph, preint_gtsam, values);
-
-    // IMU
-    preintegrate(preint_gtsam);
-    create_imu_factor(*preint_gtsam, graph);
-    gtsam::State new_state = predict_state(*preint_gtsam, values, 0);
-
-    values.insert(gtsam::Symbol('x', 1), new_state.pose_);
-    values.insert(gtsam::Symbol('v', 1), new_state.velocity_);
-    values.insert(gtsam::Symbol('b', 1), new_state.bias_);
-
-    std::cout << "IMU POSE ESTIMATE: " << std::endl;
-    std::cout << "\t Translation: " << new_state.pose_.translation().transpose() << std::endl;
-    std::cout << "\t Rotation: " << new_state.pose_.rotation().toQuaternion() << std::endl;
-    std::cout << "\t Velocity: " << new_state.velocity_.transpose() << std::endl;
-    std::cout << "\t Bias: " << new_state.bias_ << std::endl;
-
-    // Vision
-    // Run with the optical flow values from Bauhaus
-    // process_smart_features(graph, FEATURES_F1, FEATURES_F2);
-    // Or run with optical flow performed here
-    cv::Mat f1 = read_image_and_resize(IMAGE1_PATH);
-    cv::Mat f2 = read_image_and_resize(IMAGE2_PATH);
-    std::tuple<TrackedFeatures, TrackedFeatures> feature_tracks = optical_flow(f1, f2, true);
-    TrackedFeatures features_f1 = std::get<0>(feature_tracks);
-    TrackedFeatures features_f2 = std::get<1>(feature_tracks);
-    process_smart_features(graph, features_f1, features_f1);
-
-    // Optimization
+    Values values; // deleted after every iteration
+    Values all_values; // all values stored here
     ISAM2 isam2 = ISAM2();
-    optimize(isam2, graph, values);
 
-    gtsam::Pose3 updated_pose = values.at(gtsam::Symbol('x', 1)).cast<gtsam::Pose3>();
-    Vector3 updated_velocity = values.at(gtsam::Symbol('v', 1)).cast<Vector3>();
-    imuBias::ConstantBias updated_bias = values.at(gtsam::Symbol('b', 1)).cast<imuBias::ConstantBias>();
+    vector<string> image_paths = {IMAGE1_PATH, IMAGE2_PATH, IMAGE3_PATH};
+    vector<vector<gtsam::ImuMeasurement>> all_imu_measurements = {IMU_MEASUREMENTS1, IMU_MEASUREMENTS2};
 
-    std::cout << "OPTIMIZATION!" << std::endl;
-    std::cout << "\t Translation: " << updated_pose.translation().transpose() << std::endl;
-    std::cout << "\t Rotation: " << updated_pose.rotation().toQuaternion() << std::endl;
-    std::cout << "\t Velocity: " << updated_velocity.transpose() << std::endl;
-    std::cout << "\t Bias: " << updated_bias << std::endl;
+    // Initialize 
+    initialize(graph, preint_gtsam, values, all_values);
+    cv::Mat frame1 = read_image_and_resize(image_paths[0]);
+    TrackedFeatures features1;
+    extract_features(frame1, features1);
+    unordered_map<int, SmartFactor::shared_ptr> smart_factors_lookup = {};
+    process_smart_features(graph, features1, smart_factors_lookup, 0);
+
+    // print_features(features1);
+
+    for (int i = 0; i < image_paths.size() - 1; i++)
+    {
+        std::cout << "\n \nWORKING ON IMAGE " << i << std::endl;
+
+        string image_path2 = image_paths[i + 1];
+
+        //****** IMU */
+        preintegrate(preint_gtsam, all_imu_measurements[i]);
+        create_imu_factor(*preint_gtsam, graph, i);
+        gtsam::State new_state = predict_state(*preint_gtsam, all_values, i);
+
+        values.insert(gtsam::Symbol('x', i + 1), new_state.pose_);
+        values.insert(gtsam::Symbol('v', i + 1), new_state.velocity_);
+        values.insert(gtsam::Symbol('b', i + 1), new_state.bias_);
+        all_values.insert(gtsam::Symbol('x', i + 1), new_state.pose_);
+        all_values.insert(gtsam::Symbol('v', i + 1), new_state.velocity_);
+        all_values.insert(gtsam::Symbol('b', i + 1), new_state.bias_);
+
+        std::cout << "IMU pose estimate: " << std::endl;
+        std::cout << "\t Translation: " << new_state.pose_.translation().transpose() << std::endl;
+        std::cout << "\t Rotation: " << new_state.pose_.rotation().toQuaternion() << std::endl;
+        std::cout << "\t Velocity: " << new_state.velocity_.transpose() << std::endl;
+        std::cout << "\t Bias: " << new_state.bias_ << std::endl;
+
+        //****** Vision */
+        cv::Mat frame2 = read_image_and_resize(image_path2);
+
+        // Optical flow
+        TrackedFeatures features2 = optical_flow(frame1, frame2, features1, true);
+        process_smart_features(graph, features2, smart_factors_lookup, i + 1);
+
+        // print_features(features2);
+
+        // Feature extraction
+        extract_features(frame2, features2);
+
+        // print_features(features2);
+
+        //****** Optimization */
+        std::cout << "Before update, isam2 has: ";
+        isam2.getLinearizationPoint().print();
+
+        std::cout << "Initial values: ";
+        values.print();
+        std::cout << std::endl << "Graph: ";
+        graph.print();
+
+        ISAM2Result result = isam2.update(graph, values);
+        std::cout << "After update, isam2 has: ";
+        isam2.getLinearizationPoint().print();
+
+        values = isam2.calculateEstimate();
+        std::cout << "SOFIYA! ESTIMATE: ";
+        values.print();
+
+        gtsam::Pose3 updated_pose = values.at(gtsam::Symbol('x', i + 1)).cast<gtsam::Pose3>();
+        Vector3 updated_velocity = values.at(gtsam::Symbol('v', i + 1)).cast<Vector3>();
+        imuBias::ConstantBias updated_bias = values.at(gtsam::Symbol('b', i + 1)).cast<imuBias::ConstantBias>();
+
+        std::cout << "Optimization:" << std::endl;
+        std::cout << "\t Translation: " << updated_pose.translation().transpose() << std::endl;
+        std::cout << "\t Rotation: " << updated_pose.rotation().toQuaternion() << std::endl;
+        std::cout << "\t Velocity: " << updated_velocity.transpose() << std::endl;
+        std::cout << "\t Bias: " << updated_bias << std::endl;
+
+        // std::cout << "After update, isam2 has: ";
+        // isam2.getLinearizationPoint().print();
+
+        // Clear values for next iteration
+        values.clear();
+        graph.resize(0);
+
+        // Update previous frame data for next iteration
+        features1 = features2;
+        frame1 = frame2;
+    }
 
     return 0;
 }

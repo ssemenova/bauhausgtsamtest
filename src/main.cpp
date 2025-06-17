@@ -20,14 +20,19 @@ using namespace gtsam;
 
 void initialize(NonlinearFactorGraph &graph, PreintegratedCombinedMeasurements *&preint, Values &current_values, Values &all_values)
 {
-    // Create prior factor and add it to the graph
+    // const gtsam::Rot3 huh = gtsam::Rot3(0.5308, -0.1365, -0.8329, -0.0761);
+    // const gtsam::Point3 huh2 = gtsam::Point3(4.6331, -1.8072, 0.8306);
+
+    // std::cout << "huh: " << huh << std::endl;
+    // std::cout << "huh2: " << huh2 << std::endl;
 
     // Sofiya: quaternion is wxyz here but xyzw in bauhaus
     gtsam::State prior_state = gtsam::State(INITIAL_POSE, INITIAL_VELOCITY, INITIAL_BIAS);
 
     std::cout << "Initialization:" << std::endl;
     std::cout << "\t Translation: " << INITIAL_POSE.translation().transpose() << std::endl;
-    std::cout << "\t Rotation: " << INITIAL_POSE.rotation().toQuaternion() << std::endl;
+    std::cout << "\t Rotation matrix: " << INITIAL_POSE.rotation() << std::endl;
+    std::cout << "\t Rotation quaternion: " << INITIAL_POSE.rotation().toQuaternion() << std::endl;
     std::cout << "\t Velocity: " << INITIAL_VELOCITY.transpose() << std::endl;
     std::cout << "\t Bias: " << INITIAL_BIAS << std::endl;
 
@@ -52,6 +57,12 @@ void initialize(NonlinearFactorGraph &graph, PreintegratedCombinedMeasurements *
         gtsam::Symbol('x', 0),
         prior_state.pose_,
         gtsam::noiseModel::Gaussian::Covariance(pose_prior_covariance)));
+
+    // std::cout << "Pose prior covariance: " << pose_prior_covariance << std::endl;
+    // std::cout << " INITIAL_ROLL_PITCH_SIGMA: " << INITIAL_ROLL_PITCH_SIGMA << std::endl;
+    // std::cout << " INITIAL_YAW_SIGMA: " << INITIAL_YAW_SIGMA << std::endl;
+    // std::cout << " INITIAL_POSITION_SIGMA: " << INITIAL_POSITION_SIGMA << std::endl;
+    // std::cout << " INITIAL_VELOCITY_SIGMA: " << INITIAL_VELOCITY_SIGMA << std::endl;
 
     // Add initial velocity priors.
     graph.add(gtsam::PriorFactor<gtsam::Vector3>(
@@ -86,12 +97,19 @@ void initialize(NonlinearFactorGraph &graph, PreintegratedCombinedMeasurements *
     params = gtsam::PreintegratedCombinedMeasurements::Params::MakeSharedU(); // Z-up navigation frame: gravity points along negative Z-axis !!!
 
     params->setGyroscopeCovariance(gtsam::I_3x3 * GYRO_NOISE_DENSITY * GYRO_NOISE_DENSITY);
+    std::cout << "set_gyroscope_covariance: " << GYRO_NOISE_DENSITY * GYRO_NOISE_DENSITY << std::endl;
     params->setAccelerometerCovariance(gtsam::I_3x3 * ACCEL_NOISE_DENSITY * ACCEL_NOISE_DENSITY);
+    std::cout << "set_accelerometer_covariance: " << ACCEL_NOISE_DENSITY * ACCEL_NOISE_DENSITY << std::endl;
     params->setIntegrationCovariance(gtsam::I_3x3 * IMU_INTEGRATION_SIGMA * IMU_INTEGRATION_SIGMA);
+    std::cout << "set_integration_covariance: " << IMU_INTEGRATION_SIGMA * IMU_INTEGRATION_SIGMA << std::endl;
     params->biasAccOmegaInt = IMU_BIAS_INIT_SIGMA * gtsam::Matrix66::Identity(6, 6);
+    std::cout << "bias_acc_omega_int: " << IMU_BIAS_INIT_SIGMA << std::endl;
     params->biasAccCovariance = ACCEL_RANDOM_WALK * ACCEL_RANDOM_WALK * gtsam::Matrix33::Identity(3, 3);
+    std::cout << "bias_acc_covariance: " << ACCEL_RANDOM_WALK * ACCEL_RANDOM_WALK << std::endl;
     params->biasOmegaCovariance = GYRO_RANDOM_WALK * GYRO_RANDOM_WALK * gtsam::Matrix33::Identity(3, 3); // gyroscope_random_walk
+    std::cout << "bias_omega_covariance: " << GYRO_RANDOM_WALK * GYRO_RANDOM_WALK << std::endl;
 
+    std::cout << "Params: " << params << std::endl;
     // Actually create the GTSAM preintegration
     preint = new gtsam::PreintegratedCombinedMeasurements(params, prior_state.bias_);
 }
@@ -104,10 +122,10 @@ gtsam::State predict_state(PreintegratedCombinedMeasurements &preint, Values &va
         values.at(gtsam::Symbol('v', state_id)).cast<Vector3>(),
         values.at(gtsam::Symbol('b', state_id)).cast<imuBias::ConstantBias>());
 
-    // std::cout << "Current state used for imu-based prediction: " << std::endl;
-    // std::cout << "Pose: " << state_k.pose_ << std::endl;
-    // std::cout << "Velocity: " << state_k.velocity_ << std::endl;
-    // std::cout << "Bias: " << state_k.bias_ << std::endl;
+    std::cout << "Current state used for imu-based prediction: " << std::endl;
+    std::cout << "Pose: " << state_k.pose_ << std::endl;
+    std::cout << "Velocity: " << state_k.velocity_ << std::endl;
+    std::cout << "Bias: " << state_k.bias_ << std::endl;
 
     // From this we should predict where we will be at the next time (t=K+1)
     NavState state_k1 = preint.predict(
@@ -115,6 +133,9 @@ gtsam::State predict_state(PreintegratedCombinedMeasurements &preint, Values &va
             state_k.pose_,
             state_k.velocity_),
         state_k.bias_);
+
+    std::cout << "C++ predicted state: " << state_k1.t() << std::endl;
+    std::cout << "C++ predicted velocity: " << state_k1.velocity().transpose() << std::endl;
 
     gtsam::State predicted = gtsam::State(
         state_k1.pose(),
@@ -129,6 +150,12 @@ void preintegrate(PreintegratedCombinedMeasurements *&preint, vector<gtsam::ImuM
     for (int i = 0; i < imu_msmts.size(); i++)
     {
         preint->integrateMeasurement(imu_msmts[i].measuredAcc, imu_msmts[i].measuredOmega, imu_msmts[i].dt);
+
+        preint->print("Preint meas cov: ");
+        std::cout << " Preintegrating " << i << " measurement: "
+                  << " Acc: " << imu_msmts[i].measuredAcc.transpose()
+                  << ", Omega: " << imu_msmts[i].measuredOmega.transpose()
+                  << ", dt: " << imu_msmts[i].dt << std::endl;
     }
 }
 
@@ -155,27 +182,27 @@ void process_smart_features(
     {
         gtsam::Point2 point = std::get<0>(features[i]);
         int feature_id = std::get<1>(features[i]);
-        std::cout << "Processing feature id: " << feature_id << " at point: " << point.transpose() << std::endl;
+        // std::cout << "Processing feature id: " << feature_id << " at point: " << point.transpose() << std::endl;
 
         if (smart_factors_lookup.find(feature_id) != smart_factors_lookup.end())
         {
             // Insert measurements to a smart factor
             auto factor = smart_factors_lookup[feature_id];
             factor->add(point, gtsam::Symbol('x', state_id)); // Add measurement
-            // std::cout << "Added measurement to existing smart factor for feature id: " << feature_id << std::endl;
+            std::cout << "Added measurement to existing smart factor for feature id: " << feature_id << std::endl;
         } 
         else
         {
             // If we know it is not in the graph
             // Create a smart factor for the new feature
-            noiseModel::Isotropic::shared_ptr measurement_noise = noiseModel::Isotropic::Sigma(2, 1.0, true); // sigma_camera
+            noiseModel::Isotropic::shared_ptr measurement_noise = noiseModel::Isotropic::Sigma(2, SIGMA_CAMERA, true);
             gtsam::Cal3_S2 K = gtsam::Cal3_S2(FX, FY, S, CX, CY);
 
             // Note (frames): Transformation from camera frame to imu frame, i.e., pose of imu frame in camera frame
             SmartFactor::shared_ptr factor(new SmartFactor(
                 measurement_noise,
                 boost::make_shared<gtsam::Cal3_S2>(K), // calibration
-                boost::optional<gtsam::Pose3>(tbc))); // body_P_sensor);
+                boost::optional<gtsam::Pose3>(TBC))); // body_P_sensor);
 
             // Insert measurements to a smart factor
             factor->add(point, gtsam::Symbol('x', state_id));
@@ -335,7 +362,8 @@ int main(int argc, char** argv)
 
         std::cout << "IMU pose estimate: " << std::endl;
         std::cout << "\t Translation: " << new_state.pose_.translation().transpose() << std::endl;
-        std::cout << "\t Rotation: " << new_state.pose_.rotation().toQuaternion() << std::endl;
+        std::cout << "\t Rotation: " << new_state.pose_.rotation() << std::endl;
+
         std::cout << "\t Velocity: " << new_state.velocity_.transpose() << std::endl;
         std::cout << "\t Bias: " << new_state.bias_ << std::endl;
 
@@ -344,13 +372,15 @@ int main(int argc, char** argv)
 
         // Optical flow
         TrackedFeatures features2 = optical_flow(frame1, frame2, features1, true);
-        process_smart_features(graph, features2, smart_factors_lookup, i + 1);
-
-        // print_features(features2);
-
         // Feature extraction
         extract_features(frame2, features2);
 
+        std::cout << "Features2:";
+        print_features(features2);
+
+        process_smart_features(graph, features2, smart_factors_lookup, i + 1);
+
+        // print_features(features2);
         // print_features(features2);
 
         //****** Optimization */
@@ -385,7 +415,8 @@ int main(int argc, char** argv)
 
         // Clear values for next iteration
         values.clear();
-        graph.resize(0);
+        // graph.resize(0);
+        // smart_factors_lookup = {};
 
         // Update previous frame data for next iteration
         features1 = features2;

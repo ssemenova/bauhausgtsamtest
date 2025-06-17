@@ -15,8 +15,8 @@ const double FY = 457.296;
 const double S = 0.0;
 const double CX = 367.215;
 const double CY = 248.375;
-const double SIGMA_CAMERA = 0.306555403;
-const Pose3 tbc = gtsam::Pose3(
+const double SIGMA_CAMERA = 0.306555;
+const Pose3 TBC = gtsam::Pose3(
     gtsam::Quaternion(0.7123014606689537, -0.0077071797555374275, 0.010499323370587278, 0.7017528002919717),
     gtsam::Point3(-0.0216401454975, -0.064676986768, 0.00981073058949));
 
@@ -31,15 +31,15 @@ const double GYRO_NOISE_DENSITY = 1.7e-4;
 const double ACCEL_NOISE_DENSITY = 2.0000e-3;
 const double IMU_INTEGRATION_SIGMA = 1.0e-8;
 const double IMU_BIAS_INIT_SIGMA = 1e-3;
-const double ACCEL_RANDOM_WALK = 3.0000e-2;
-const double GYRO_RANDOM_WALK = 1.9393e-05;
+const double ACCEL_RANDOM_WALK = 3.0000e-3;
+const double GYRO_RANDOM_WALK = 0.5e-05;
 
 // * INPUTS *//
 const string IMAGE1_PATH = "images/1403636861151666432.png";
 const string IMAGE2_PATH = "images/1403636861201666560.png";
 const string IMAGE3_PATH = "images/1403636861251666432.png";
 
-const gtsam::Pose3 INITIAL_POSE = gtsam::Pose3(gtsam::Quaternion(0.5308, -0.1365, -0.8329, -0.0761), gtsam::Point3(4.6331, -1.8072, 0.8306));
+const gtsam::Pose3 INITIAL_POSE = gtsam::Pose3(gtsam::Rot3(0.530843252578703, -0.13652526466009718, -0.8329274128593758, -0.07614603212604405), gtsam::Point3(4.63308, -1.80722, 0.830638));
 const gtsam::Vector3 INITIAL_VELOCITY = gtsam::Vector3(-0.060768, 0.054005, 0.617824);
 const gtsam::imuBias::ConstantBias INITIAL_BIAS = gtsam::imuBias::ConstantBias(
     gtsam::Vector3(-0.024348, 0.144441, 0.06754),
